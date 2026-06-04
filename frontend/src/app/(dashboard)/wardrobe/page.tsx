@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useState, useMemo, useCallback, useRef, useEffect, memo, type CSSProperties } from "react";
+import { FixedSizeList as List } from "react-window";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ import {
   Tag,
   Plus,
   Grid3X3,
-  List,
+  List as ListIcon,
   Store,
   ChevronDown,
   SlidersHorizontal,
@@ -103,6 +103,105 @@ const sortOptions = [
   { label: "A-Z", fn: (a: WardrobeItem, b: WardrobeItem) => a.name.localeCompare(b.name) },
 ];
 
+const ITEM_HEIGHT = 340;
+const LIST_ITEM_HEIGHT = 72;
+const ROW_GAP = 16;
+
+function getColumns(width: number): number {
+  if (width >= 1280) return 5;
+  if (width >= 1024) return 4;
+  if (width >= 640) return 3;
+  return 2;
+}
+
+function GridRow({ data, index, style }: { data: { items: WardrobeItem[]; columns: number; onImageError: (id: string) => void }; index: number; style: CSSProperties }) {
+  const { items, columns, onImageError } = data;
+  const start = index * columns;
+  const rowItems = items.slice(start, start + columns);
+  return (
+    <div style={{ ...style, display: "flex", gap: ROW_GAP, paddingRight: ROW_GAP }}>
+      {rowItems.map((item) => (
+        <div key={item.id} className="flex-1 min-w-0">
+          <Card className="group overflow-hidden hover:shadow-lg transition-all duration-300 h-full">
+            <ProductImage item={item} onError={onImageError} />
+            <CardContent className="p-3 space-y-2">
+              <div>
+                <h3 className="font-medium text-sm leading-tight line-clamp-1">{item.name}</h3>
+                <p className="text-xs text-muted-foreground font-medium">{item.brand}</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{item.category}</Badge>
+                <Badge variant="outline" className="text-[10px] gap-1 px-1.5 py-0">
+                  <Tag className="h-2.5 w-2.5" />{item.color}
+                </Badge>
+                <StoreBadge store={item.store} />
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t">
+                <span className="font-semibold text-foreground">{item.price}</span>
+                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{item.wearCount}</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1">
+                  <Heart className={`h-3.5 w-3.5 ${item.isFavorite ? "fill-red-500 text-red-500" : ""}`} />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ListRow({ data, index, style }: { data: { items: WardrobeItem[]; onImageError: (id: string) => void }; index: number; style: CSSProperties }) {
+  const { items, onImageError } = data;
+  const item = items[index];
+  return (
+    <div style={style} className="pr-4">
+      <div className="flex items-center gap-3 rounded-lg border p-2.5 transition-all hover:bg-accent/50 h-full">
+        <div className="h-14 w-14 rounded-lg overflow-hidden shrink-0 bg-muted/30">
+          <img
+            src={item.imageUrl}
+            alt={item.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = "none";
+              const parent = target.parentElement;
+              if (parent) {
+                parent.style.background = `linear-gradient(135deg, ${item.colorHex}15, ${item.colorHex}30)`;
+                parent.innerHTML = `<span style="font-size:1.5rem">${ICONS[item.category] || "👕"}</span>`;
+              }
+            }}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm truncate">{item.name}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            {item.brand} · {item.category} · {item.color}{item.material ? ` · ${item.material}` : ""}
+          </p>
+          <div className="flex gap-2 mt-0.5">
+            <StoreBadge store={item.store} />
+            <Badge variant="outline" className="text-[10px]">{item.price}</Badge>
+            {item.size && <Badge variant="outline" className="text-[10px]">Size {item.size}</Badge>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" className="text-xs">{item.wearCount} wears</Badge>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Heart className={`h-4 w-4 ${item.isFavorite ? "fill-red-500 text-red-500" : ""}`} />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const GridRowMemo = memo(GridRow);
+const ListRowMemo = memo(ListRow);
+
 export default function WardrobePage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -110,6 +209,18 @@ export default function WardrobePage() {
   const [sortIndex, setSortIndex] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(800);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleImageError = useCallback((id: string) => {
     setFailedImages((prev) => new Set(prev).add(id));
@@ -146,6 +257,20 @@ export default function WardrobePage() {
     return [...items].sort(sortOptions[sortIndex].fn);
   }, [selectedCategory, searchQuery, sortIndex]);
 
+  const columns = useMemo(() => getColumns(containerWidth), [containerWidth]);
+  const gridRowCount = useMemo(() => Math.ceil(filteredItems.length / columns), [filteredItems.length, columns]);
+
+  const gridListRef = useRef<List>(null);
+  const listListRef = useRef<List>(null);
+
+  useEffect(() => {
+    gridListRef.current?.scrollTo(0);
+    listListRef.current?.scrollTo(0);
+  }, [filteredItems.length, viewMode]);
+
+  const gridItemData = useMemo(() => ({ items: filteredItems, columns, onImageError: handleImageError }), [filteredItems, columns, handleImageError]);
+  const listItemData = useMemo(() => ({ items: filteredItems, onImageError: handleImageError }), [filteredItems, handleImageError]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -163,7 +288,7 @@ export default function WardrobePage() {
             <Grid3X3 className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setViewMode("list")} className={viewMode === "list" ? "bg-accent" : ""}>
-            <List className="h-4 w-4" />
+            <ListIcon className="h-4 w-4" />
           </Button>
           <Dialog>
             <DialogTrigger asChild>
@@ -234,28 +359,6 @@ export default function WardrobePage() {
         </div>
       </div>
 
-      {showFilters && (
-        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="overflow-hidden">
-          <div className="rounded-lg border p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {[
-              { label: "Favorite", options: ["All", "Favorites Only"] },
-              { label: "Price Range", options: ["All", "Under ₹999", "₹1K - ₹3K", "₹3K - ₹5K", "Above ₹5K"] },
-              { label: "Season", options: ["All", ...seasons] },
-              { label: "Size", options: ["All", "XS", "S", "M", "L", "XL", "28", "30", "32", "34", "9", "10"] },
-            ].map((group) => (
-              <div key={group.label}>
-                <p className="text-xs font-medium text-muted-foreground mb-2">{group.label}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {group.options.map((opt) => (
-                    <Badge key={opt} variant="outline" className="text-xs cursor-pointer hover:bg-accent">{opt}</Badge>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
       {filteredItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <Shirt className="h-12 w-12 text-muted-foreground/50" />
@@ -263,90 +366,29 @@ export default function WardrobePage() {
           <p className="text-sm text-muted-foreground">Try adjusting your search or filters</p>
         </div>
       ) : viewMode === "grid" ? (
-        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {filteredItems.map((item, i) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: (i % 50) * 0.005 }}
-            >
-              <Card className="group overflow-hidden hover:shadow-lg transition-all duration-300">
-                <ProductImage item={item} onError={handleImageError} />
-                <CardContent className="p-3 space-y-2">
-                  <div>
-                    <h3 className="font-medium text-sm leading-tight line-clamp-1">{item.name}</h3>
-                    <p className="text-xs text-muted-foreground font-medium">{item.brand}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{item.category}</Badge>
-                    <Badge variant="outline" className="text-[10px] gap-1 px-1.5 py-0">
-                      <Tag className="h-2.5 w-2.5" />{item.color}
-                    </Badge>
-                    <StoreBadge store={item.store} />
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t">
-                    <span className="font-semibold text-foreground">{item.price}</span>
-                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{item.wearCount}</span>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1">
-                      <Heart className={`h-3.5 w-3.5 ${item.isFavorite ? "fill-red-500 text-red-500" : ""}`} />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+        <div ref={containerRef}>
+          <List
+            ref={gridListRef}
+            height={Math.min(gridRowCount * (ITEM_HEIGHT + ROW_GAP), 800)}
+            itemCount={gridRowCount}
+            itemSize={ITEM_HEIGHT + ROW_GAP}
+            width={containerWidth - ROW_GAP}
+            itemData={gridItemData}
+          >
+            {GridRowMemo}
+          </List>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {filteredItems.map((item, i) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: (i % 50) * 0.005 }}
-              className="flex items-center gap-3 rounded-lg border p-2.5 transition-all hover:bg-accent/50"
-            >
-              <div className="h-14 w-14 rounded-lg overflow-hidden shrink-0 bg-muted/30">
-                <img
-                  src={item.imageUrl}
-                  alt={item.name}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = "none";
-                    const parent = target.parentElement;
-                    if (parent) {
-                      parent.style.background = `linear-gradient(135deg, ${item.colorHex}15, ${item.colorHex}30)`;
-                      parent.innerHTML = `<span style="font-size:1.5rem">${ICONS[item.category] || "👕"}</span>`;
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {item.brand} · {item.category} · {item.color}{item.material ? ` · ${item.material}` : ""}
-                </p>
-                <div className="flex gap-2 mt-0.5">
-                  <StoreBadge store={item.store} />
-                  <Badge variant="outline" className="text-[10px]">{item.price}</Badge>
-                  {item.size && <Badge variant="outline" className="text-[10px]">Size {item.size}</Badge>}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Badge variant="secondary" className="text-xs">{item.wearCount} wears</Badge>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <Heart className={`h-4 w-4 ${item.isFavorite ? "fill-red-500 text-red-500" : ""}`} />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                </Button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        <List
+          ref={listListRef}
+          height={Math.min(filteredItems.length * LIST_ITEM_HEIGHT, 800)}
+          itemCount={filteredItems.length}
+          itemSize={LIST_ITEM_HEIGHT}
+          width="100%"
+          itemData={listItemData}
+        >
+          {ListRowMemo}
+        </List>
       )}
 
       <div className="text-center text-xs text-muted-foreground pt-4 border-t">

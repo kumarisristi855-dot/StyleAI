@@ -14,6 +14,15 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "10mb",
     },
   },
+  swcMinify: true,
+  compress: true,
+  reactStrictMode: true,
+  poweredByHeader: false,
+  generateEtags: true,
+  onDemandEntries: {
+    maxInactiveAge: 60 * 1000,
+    pagesBufferLength: 5,
+  },
 };
 
 export default nextConfig;
