@@ -33,6 +33,10 @@ const mockProducts = [
 export default function ComparePage() {
   const [searchQuery, setSearchQuery] = useState("");
 
+  const filteredProducts = mockProducts.filter(p =>
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -48,7 +52,14 @@ export default function ComparePage() {
       </div>
 
       <div className="space-y-6">
-        {mockProducts.map((product) => (
+        {filteredProducts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Search className="h-12 w-12 text-muted-foreground/40 mb-4" />
+            <h3 className="text-lg font-semibold">No products found</h3>
+            <p className="text-sm text-muted-foreground">Try a different search term</p>
+          </div>
+        ) : (
+          filteredProducts.map((product) => (
           <motion.div key={product.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <Card>
               <CardHeader>
@@ -97,7 +108,7 @@ export default function ComparePage() {
               </CardContent>
             </Card>
           </motion.div>
-        ))}
+          )))}
       </div>
     </div>
   );
